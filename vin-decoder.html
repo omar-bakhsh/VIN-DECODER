@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مازدا - نظام تحليل رقم الهيكل المتكامل</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #a30000;
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 28px;
+        }
+        .input-section {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .result-section {
+            margin-top: 25px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            display: none;
+            border: 1px solid #ddd;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            text-align: right;
+        }
+        th {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .progress-container {
+            margin: 20px 0;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        button {
+            background-color: #a30000;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #8a0000;
+        }
+        input[type="file"], input[type="text"] {
+            padding: 10px;
+            width: 100%;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .vin-display {
+            font-size: 20px;
+            font-weight: bold;
+            color: #a30000;
+            margin: 15px 0;
+            padding: 10px;
+            background: #fff;
+            border: 1px dashed #a30000;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        .section-title {
+            color: #a30000;
+            border-bottom: 2px solid #a30000;
+            padding-bottom: 5px;
+            margin-top: 25px;
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo img {
+            max-height: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <img src="https://www.mazda.com/contentassets/ed6a5596a9a24e5c837490a8e6f2f59a/symbol-mark.png" alt="Mazda Logo">
+        </div>
+        <h1>نظام تحليل رقم الهيكل (VIN) لسيارات مازدا</h1>
+        
+        <div class="input-section">
+            <h3>أدخل بيانات المركبة:</h3>
+            <input type="file" id="vinImage" accept="image/*">
+            <button onclick="scanVIN()">مسح صورة VIN</button>
+            <p>أو</p>
+            <input type="text" id="manualVin" placeholder="أدخل رقم الهيكل يدوياً (17 حرف/رقم)">
+            <button onclick="decodeManualVIN()">تحليل VIN</button>
+        </div>
+        
+        <div class="progress-container" id="progressContainer" style="display:none;">
+            <p>جاري معالجة الصورة...</p>
+            <div class="progress-bar">
+                <div id="progress" class="progress"></div>
+            </div>
+        </div>
+        
+        <div id="resultSection" class="result-section">
+            <h2 class="section-title">نتائج تحليل رقم الهيكل</h2>
+            <div id="vinImagePreview" style="text-align:center; margin-bottom:20px;"></div>
+            <div class="vin-display" id="vinNumber"></div>
+            
+            <h3 class="section-title">معلومات المصنع</h3>
+            <table id="manufacturerInfo">
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+            </table>
+            
+            <h3 class="section-title">مواصفات المركبة</h3>
+            <table id="vehicleSpecs">
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+            </table>
+            
+            <h3 class="section-title">معلومات التصنيع</h3>
+            <table id="productionInfo">
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // قاعدة بيانات موسعة لتحليل VIN لسيارات مازدا
+        const mazdaVinDecoder = {
+            decode: function(vin) {
+                if (!vin || vin.length !== 17) return null;
+                
+                // معلومات المصنع (ثابتة لسيارات مازدا)
+                const manufacturerInfo = {
+                    name: "Mazda Motor Corporation",
+                    address1: "3-1 Shinchi, Fuchu-cho, Aki-gun",
+                    address2: "Hiroshima 730-8670",
+                    region: "Asia",
+                    country: "Japan",
+                    note: "Manufacturer builds more than 500 vehicles per year",
+                    website: "www.mazda.com",
+                    founded: "1920",
+                    revenue: "3.72 تريليون ين ياباني (2023)"
+                };
+                
+                // كود سنة التصنيع
+                const yearCodes = {
+                    'G': 2016, 'H': 2017, 'J': 2018, 'K': 2019, 
+                    'L': 2020, 'M': 2021, 'N': 2022, 'P': 2023,
+                    'R': 2024, 'S': 2025
+                };
+                
+                // كود مصانع التجميع
+                const plantCodes = {
+                    '0': { name: "هيروشيما، اليابان", address: "Fuchu-cho, Aki-gun, Hiroshima" },
+                    '1': { name: "هوفو، اليابان", address: "Yamaguchi, Yamaguchi Prefecture" },
+                    '2': { name: "فلت، اليابان", address: "Hofu, Yamaguchi Prefecture" },
+                    '5': { name: "فلت روك، ميشيغان، الولايات المتحدة", address: "Flat Rock, Michigan, USA" },
+                    '6': { name: "مصنع AAI (مشترك مع فورد)، الصين", address: "Changan Mazda Automobile Co., Nanjing" },
+                    '7': { name: "مصنع تايلاند", address: "Rayong, Thailand" }
+                };
+                
+                // كود الموديلات
+                const modelCodes = {
+                    '1': { name: "مازدا 2 (DJ)", segment: "سيارة صغيرة" },
+                    '2': { name: "مازدا 3 (BM)", segment: "سيارة عائلية صغيرة" },
+                    '3': { name: "مازدا 6 (GJ)", segment: "سيارة عائلية متوسطة" },
+                    '4': { name: "مازدا CX-3 (DK)", segment: "SUV صغيرة" },
+                    '5': { name: "مازدا CX-30 (DM)", segment: "SUV صغيرة" },
+                    '6': { name: "مازدا CX-5 (KE)", segment: "SUV متوسطة" },
+                    '7': { name: "مازدا CX-7", segment: "SUV متوسطة" },
+                    '8': { name: "مازدا CX-8 (KW)", segment: "SUV كبيرة" },
+                    '9': { name: "مازدا CX-9 (TB)", segment: "SUV كبيرة" },
+                    'A': { name: "مازدا MX-5 (ND)", segment: "سيارة رياضية" }
+                };
+                
+                // كود المحركات
+                const engineCodes = {
+                    'B': { size: "1.3L", type: "SKYACTIV-G بنزين", power: "92 حصان" },
+                    'F': { size: "2.0L", type: "SKYACTIV-G بنزين", power: "155 حصان" },
+                    'G': { size: "2.5L", type: "SKYACTIV-G بنزين", power: "187 حصان" },
+                    'H': { size: "2.5L", type: "توربو SKYACTIV-G بنزين", power: "250 حصان" },
+                    'P': { size: "1.5L", type: "SKYACTIV-D ديزل", power: "105 حصان" },
+                    'R': { size: "2.2L", type: "SKYACTIV-D ديزل", power: "150 حصان" }
+                };
+                
+                // كود فئة القطع
+                const trimCodes = {
+                    '1': "القاعدة",
+                    '2': "الوسطى",
+                    '3': "العالية",
+                    '4': "GT",
+                    '5': "Signature",
+                    '6': "Takumi",
+                    '7': "Homura",
+                    '8': "Exclusive"
+                };
+                
+                // تحديد معلومات المصنع من أول 3 أحرف (WMI)
+                const wmiInfo = {
+                    'JM1': { type: "سيارات الركاب", market: "عالمي" },
+                    'JM3': { type: "سيارات الركاب", market: "أمريكا الشمالية" },
+                    'JM7': { type: "سيارات الركاب", market: "أمريكا الشمالية" },
+                    'JMZ': { type: "سيارات الركاب", market: "أوروبا" },
+                    'JMB': { type: "سيارات الركاب", market: "آسيا" }
+                };
+                
+                return {
+                    // معلومات المصنع العامة
+                    manufacturer: manufacturerInfo,
+                    
+                    // معلومات محددة من VIN
+                    wmi: vin.substring(0, 3),
+                    modelYear: yearCodes[vin[9]] || 'غير معروف',
+                    assemblyPlant: plantCodes[vin[10]] || { name: 'غير معروف', address: '' },
+                    model: modelCodes[vin[3]] || { name: 'غير معروف', segment: '' },
+                    engine: engineCodes[vin[7]] || { size: 'غير معروف', type: '', power: '' },
+                    serialNumber: vin.substring(11),
+                    bodyType: vin[4] === 'H' ? 'هاتشباك' : (vin[4] === 'S' ? 'SUV' : 'سيدان'),
+                    safetyFeatures: this.getSafetyFeatures(vin),
+                    trimLevel: trimCodes[vin[6]] || 'غير معروف',
+                    productionSequence: vin.substring(11),
+                    marketInfo: wmiInfo[vin.substring(0, 3)] || { type: 'غير معروف', market: '' },
+                    transmission: this.getTransmission(vin),
+                    driveType: this.getDriveType(vin)
+                };
+            },
+            
+            getSafetyFeatures: function(vin) {
+                const code = vin[8];
+                const features = [];
+                
+                if (code === '1' || code === '2') features.push("6 وسائد هوائية");
+                if (code === '2') features.push("نظام تجنب الاصطدام");
+                if (code === '3') features.push("نظام مراقبة النقاط العمياء");
+                if (code === '4') features.push("كل الأنظمة المتقدمة");
+                
+                return features.length > 0 ? features.join("، ") : "4 وسائد هوائية";
+            },
+            
+            getTransmission: function(vin) {
+                const code = vin[5];
+                if (code === 'A') return "أوتوماتيك 4 سرعات";
+                if (code === 'B') return "أوتوماتيك 5 سرعات";
+                if (code === 'C') return "أوتوماتيك 6 سرعات";
+                if (code === 'D') return "أوتوماتيك 8 سرعات";
+                if (code === 'M') return "يدوي 5 سرعات";
+                if (code === 'N') return "يدوي 6 سرعات";
+                return "غير معروف";
+            },
+            
+            getDriveType: function(vin) {
+                const code = vin[4];
+                if (code === 'A' || code === 'F') return "دفع أمامي (FWD)";
+                if (code === 'D' || code === 'H') return "دفع رباعي (AWD)";
+                if (code === 'R') return "دفع خلفي (RWD)";
+                return "غير معروف";
+            }
+        };
+
+        async function scanVIN() {
+            const file = document.getElementById('vinImage').files[0];
+            const resultSection = document.getElementById('resultSection');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progress');
+            
+            if (!file) {
+                alert("الرجاء اختيار صورة تحتوي على رقم الهيكل أولاً");
+                return;
+            }
+            
+            // عرض معاينة الصورة
+            const vinImagePreview = document.getElementById('vinImagePreview');
+            vinImagePreview.innerHTML = `<img src="${URL.createObjectURL(file)}" style="max-width: 100%; border: 1px solid #ddd; border-radius: 5px;">`;
+            
+            resultSection.style.display = 'none';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            
+            try {
+                const { data: { text } } = await Tesseract.recognize(
+                    file,
+                    'eng+ara',
+                    {
+                        logger: progress => {
+                            if (progress.status === 'recognizing text') {
+                                progressBar.style.width = `${Math.round(progress.progress * 100)}%`;
+                            }
+                        },
+                        tessedit_char_whitelist: 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789',
+                    }
+                );
+                
+                console.log("النص المستخرج:", text);
+                const vin = extractVIN(text);
+                
+                if (vin) {
+                    decodeAndDisplayVIN(vin);
+                } else {
+                    resultSection.style.display = 'block';
+                    document.getElementById('vinNumber').textContent = "لم يتم العثور على VIN صالح في الصورة";
+                    document.getElementById('manufacturerInfo').innerHTML = '<tr><th>المعلومة</th><th>القيمة</th></tr>';
+                    document.getElementById('vehicleSpecs').innerHTML = '<tr><th>المعلومة</th><th>القيمة</th></tr>';
+                    document.getElementById('productionInfo').innerHTML = '<tr><th>المعلومة</th><th>القيمة</th></tr>';
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("حدث خطأ أثناء معالجة الصورة: " + error.message);
+            } finally {
+                progressContainer.style.display = 'none';
+            }
+        }
+        
+        function decodeManualVIN() {
+            const manualVin = document.getElementById('manualVin').value.trim().toUpperCase();
+            if (manualVin.length !== 17) {
+                alert("رقم الهيكل (VIN) يجب أن يتكون من 17 حرف/رقم");
+                return;
+            }
+            
+            if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(manualVin)) {
+                alert("رقم الهيكل يحتوي على أحرف غير صالحة (I, O, Q غير مسموحة)");
+                return;
+            }
+            
+            decodeAndDisplayVIN(manualVin);
+        }
+        
+        function extractVIN(text) {
+            // إزالة جميع الأحرف غير المرغوب فيها
+            const clean = text.replace(/[^A-Z0-9]/gi, '');
+            
+            // البحث عن تسلسل VIN صالح (17 حرف/رقم)
+            const vin = clean.match(/[A-HJ-NPR-Z0-9]{17}/i)?.[0];
+            
+            return vin ? vin.toUpperCase() : null;
+        }
+        
+        function decodeAndDisplayVIN(vin) {
+            const resultSection = document.getElementById('resultSection');
+            const vinNumberElement = document.getElementById('vinNumber');
+            const manufacturerTable = document.getElementById('manufacturerInfo');
+            const specsTable = document.getElementById('vehicleSpecs');
+            const productionTable = document.getElementById('productionInfo');
+            
+            // عرض رقم الهيكل
+            vinNumberElement.textContent = vin;
+            
+            // تحليل VIN
+            const decodedInfo = mazdaVinDecoder.decode(vin);
+            
+            // تعبئة جدول معلومات المصنع
+            manufacturerTable.innerHTML = `
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+                <tr>
+                    <td>اسم المصنع</td>
+                    <td>${decodedInfo.manufacturer.name}</td>
+                </tr>
+                <tr>
+                    <td>العنوان الأول</td>
+                    <td>${decodedInfo.manufacturer.address1}</td>
+                </tr>
+                <tr>
+                    <td>العنوان الثاني</td>
+                    <td>${decodedInfo.manufacturer.address2}</td>
+                </tr>
+                <tr>
+                    <td>المنطقة</td>
+                    <td>${decodedInfo.manufacturer.region}</td>
+                </tr>
+                <tr>
+                    <td>الدولة</td>
+                    <td>${decodedInfo.manufacturer.country}</td>
+                </tr>
+                <tr>
+                    <td>ملاحظات</td>
+                    <td>${decodedInfo.manufacturer.note}</td>
+                </tr>
+                <tr>
+                    <td>سنة التأسيس</td>
+                    <td>${decodedInfo.manufacturer.founded}</td>
+                </tr>
+                <tr>
+                    <td>الموقع الإلكتروني</td>
+                    <td><a href="https://${decodedInfo.manufacturer.website}" target="_blank">${decodedInfo.manufacturer.website}</a></td>
+                </tr>
+            `;
+            
+            // تعبئة جدول مواصفات المركبة
+            specsTable.innerHTML = `
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+                <tr>
+                    <td>الموديل</td>
+                    <td>${decodedInfo.model.name}</td>
+                </tr>
+                <tr>
+                    <td>الفئة</td>
+                    <td>${decodedInfo.model.segment}</td>
+                </tr>
+                <tr>
+                    <td>سنة الموديل</td>
+                    <td>${decodedInfo.modelYear}</td>
+                </tr>
+                <tr>
+                    <td>المحرك</td>
+                    <td>${decodedInfo.engine.size} - ${decodedInfo.engine.type}</td>
+                </tr>
+                <tr>
+                    <td>القوة</td>
+                    <td>${decodedInfo.engine.power}</td>
+                </tr>
+                <tr>
+                    <td>نوع القيادة</td>
+                    <td>${decodedInfo.driveType}</td>
+                </tr>
+                <tr>
+                    <td>ناقل الحركة</td>
+                    <td>${decodedInfo.transmission}</td>
+                </tr>
+                <tr>
+                    <td>نوع الهيكل</td>
+                    <td>${decodedInfo.bodyType}</td>
+                </tr>
+                <tr>
+                    <td>فئة القطع</td>
+                    <td>${decodedInfo.trimLevel}</td>
+                </tr>
+                <tr>
+                    <td>نظام الأمان</td>
+                    <td>${decodedInfo.safetyFeatures}</td>
+                </tr>
+            `;
+            
+            // تعبئة جدول معلومات التصنيع
+            productionTable.innerHTML = `
+                <tr>
+                    <th>المعلومة</th>
+                    <th>القيمة</th>
+                </tr>
+                <tr>
+                    <td>مكان التصنيع</td>
+                    <td>${decodedInfo.assemblyPlant.name}</td>
+                </tr>
+                <tr>
+                    <td>عنوان المصنع</td>
+                    <td>${decodedInfo.assemblyPlant.address}</td>
+                </tr>
+                <tr>
+                    <td>السوق المستهدف</td>
+                    <td>${decodedInfo.marketInfo.market}</td>
+                </tr>
+                <tr>
+                    <td>نوع المركبة</td>
+                    <td>${decodedInfo.marketInfo.type}</td>
+                </tr>
+                <tr>
+                    <td>الرقم التسلسلي</td>
+                    <td>${decodedInfo.serialNumber}</td>
+                </tr>
+                <tr>
+                    <td>تسلسل الإنتاج</td>
+                    <td>${decodedInfo.productionSequence}</td>
+                </tr>
+                <tr>
+                    <td>معرف المصنع (WMI)</td>
+                    <td>${decodedInfo.wmi}</td>
+                </tr>
+            `;
+            
+            resultSection.style.display = 'block';
+            
+            // التمرير إلى قسم النتائج
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
